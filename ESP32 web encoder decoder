@@ -1,0 +1,139 @@
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+
+// Replace these values with your SSID and password
+const char* ssid = "your_SSID";
+const char* password = "your_PASSWORD";
+
+AsyncWebServer server(80);
+
+// Function for RLE encoding
+String RLEEncode(String input_str) {
+    if (input_str.isEmpty()) {
+      return("Empty string in input");
+    }
+
+    for (char c : input_str) {
+        if (!isupper(c) || !isalpha(c)) {
+          return("The string must contain only uppercase English characters");
+        }
+    }
+
+    String encoded_str;
+    int char_count = 1;
+
+    for (int i = 1; i < input_str.length(); ++i) {
+      if (input_str[i] == input_str[i - 1]) {
+          char_count += 1;
+      } else {
+          encoded_str += input_str[i - 1];
+          if (char_count > 1) {
+              encoded_str += String(char_count);
+          }
+          char_count = 1;
+      }
+    }
+
+    encoded_str += input_str[input_str.length()-1];
+    if (char_count > 1) {
+      encoded_str += String(char_count);
+    }
+
+    return encoded_str;
+}
+
+// Function for RLE decoding
+String RLEDecode(String input_str) {
+
+    if (input_str.isEmpty()) {
+      return("Empty string in input");
+    }
+
+    String decoded_str;
+    size_t str_len = input_str.length();
+    int count = 0;
+
+    for (int i = 1; i < str_len; i++) {
+        char current_char = input_str[i];
+
+        if (isdigit(current_char)) {
+          count = current_char - '0';
+          for(int j = 0; j < count; j++) {
+            decoded_str += input_str[i-1];
+          }
+        }
+        if (isalpha(current_char) && isalpha(input_str[i-1])) {
+          count = 0;
+          decoded_str += input_str[i-1];
+        }
+
+        if (isalpha(current_char) && (i == (str_len - 1))) {
+          decoded_str += current_char;
+        }
+        
+    }
+
+    return decoded_str;
+}
+
+
+void setup() {
+  Serial.begin(115200);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    String html = "<html><head><title>ESP32 RLE Encoder/Decoder</title></head>"
+                  "<body>"
+                  "<h1>ESP32 RLE Encoder/Decoder</h1>"
+                  "<form onsubmit='sendText(event)'>"
+                  "<input type='text' id='inputText' placeholder='Enter text to encode/decode'/>"
+                  "<button type='submit' id='encodeBtn'>Encode</button>"
+                  "<button type='button' id='decodeBtn' onclick='sendText(event, true)'>Decode</button>"
+                  "</form>"
+                  "<p id='result'></p>"
+                  "<script>"
+                  "async function sendText(event, isDecode = false) {"
+                  "event.preventDefault();"
+                  "let inputText = document.getElementById('inputText').value;"
+                  "let endpoint = isDecode ? '/decode' : '/encode';"
+                  "let response = await fetch(endpoint + '?text=' + inputText);"
+                  "let processedText = await response.text();"
+                  "document.getElementById('result').innerHTML = (isDecode ? 'Decoded: ' : 'Encoded: ') + processedText;"
+                  "}"
+                  "</script>"
+                  "</body></html>";
+    request->send(200, "text/html", html);
+  });
+
+  server.on("/encode", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("text")) {
+      String inputText = request->getParam("text")->value();
+      String encodedText = RLEEncode(inputText);
+      request->send(200, "text/plain", encodedText);
+    } else {
+      request->send(400, "text/plain", "Bad Request");
+    }
+  });
+
+  server.on("/decode", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("text")) {
+      String inputText = request->getParam("text")->value();
+      String decodedText = RLEDecode(inputText);
+      request->send(200, "text/plain", decodedText);
+    } else {
+      request->send(400, "text/plain", "Bad Request");
+    }
+  });
+
+  server.begin();
+}
+
+void loop() {
+  // Leave blank
+}
